@@ -1,6 +1,6 @@
 package scalajsreact.template.pages
 
-import scalacss.Defaults._
+import scalacss.DevDefaults._
 import scalacss.ScalaCssReact._
 
 import japgolly.scalajs.react._

@@ -12,6 +12,9 @@ object GlobalStyle extends StyleSheet.Inline {
       padding.`0`,
       fontSize(14.px),
       fontFamily := "Roboto, sans-serif"
+    ),
+    unsafeRoot("pre p")(
+      margin.`0`
     )
   )
 }

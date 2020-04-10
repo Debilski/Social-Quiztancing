@@ -1,6 +1,6 @@
 package scalajsreact.template.components
 
-import scalacss.Defaults._
+import scalacss.DevDefaults._
 import scalacss.ScalaCssReact._
 import scalajsreact.template.models.Menu
 import scalajsreact.template.routes.AppRouter.AppPage

@@ -1,10 +1,10 @@
 val v = new {
   val app = "1.0"
-  val scala = "2.12.8"
+  val scala = "2.13.1"
   val scalaJSDom = "0.9.7"
-  val scalaJSReact = "1.4.2"
-  val scalaCss = "0.5.6"
-  val reactJS = "16.8.6"
+  val scalaJSReact = "1.6.0"
+  val scalaCss = "0.6.0"
+  val reactJS = "16.12.0"
 }
 
 name := "scalajs-react-template"
@@ -19,6 +19,22 @@ libraryDependencies ++= Seq(
   "com.github.japgolly.scalacss" %%% "ext-react" % v.scalaCss
 )
 
+val circeVersion = "0.13.0"
+
+libraryDependencies ++= Seq(
+  "io.circe" %%% "circe-core",
+  "io.circe" %%% "circe-generic",
+  "io.circe" %%% "circe-parser",
+  "io.circe" %%% "circe-generic-extras"
+).map(_ % circeVersion)
+
+val monocleVersion = "2.0.0" // depends on cats 2.x
+
+libraryDependencies ++= Seq(
+  "com.github.julien-truffaut" %%% "monocle-core"  % monocleVersion,
+  "com.github.julien-truffaut" %%% "monocle-macro" % monocleVersion,
+  "com.github.julien-truffaut" %%% "monocle-law"   % monocleVersion % "test"
+)
 
 enablePlugins(ScalaJSPlugin)
 (scalaJSUseMainModuleInitializer in Compile) := true
@@ -34,6 +50,7 @@ crossTarget in (Compile, packageMinifiedJSDependencies) := file("js")
 artifactPath in (Compile, fastOptJS) := ((crossTarget in (Compile, fastOptJS)).value /
   ((moduleName in fastOptJS).value + "-opt.js"))
 scalacOptions += "-feature"
+
 
 
 enablePlugins(JSDependenciesPlugin)
@@ -56,6 +73,7 @@ jsDependencies ++= Seq(
 
 //enablePlugins(ScalaJSBundlerPlugin)
 //npmDependencies in Compile ++= Seq(
+//  "react-color" -> "2.18.0"
 //)
 
 // fixes unresolved deps issue: https://github.com/webjars/webjars/issues/1789
@@ -64,6 +82,9 @@ dependencyOverrides ++= Seq(
   "org.webjars.npm" % "scheduler" % "0.14.0"
 )
 
+libraryDependencies ++= Seq(
+  "org.webjars.npm" % "react-color" % "2.17.3"
+)
 
 //enablePlugins(WorkbenchPlugin)
 // Live Reloading: WorkbenchPlugin must NOT be enabled at the same time
