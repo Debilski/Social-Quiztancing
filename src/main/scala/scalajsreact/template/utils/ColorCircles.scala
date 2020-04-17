@@ -4,15 +4,24 @@ import japgolly.scalajs.react._
 import japgolly.scalajs.react.vdom.html_<^._
 
 import japgolly.scalajs.react.extra.StateSnapshot
+import scalacss.ScalaCssReact._
+import scalacss.ProdDefaults._
 
-object ColorCircles {
+object Swatch {
 
-  class SwatchBackend(
-      $ : BackendScope[(String, String => Callback, Boolean), Unit]
+  final case class Props(
+      color: String,
+      onClick: String => Callback,
+      active: Boolean
   ) {
+    @inline def render: VdomElement = Component(this)
+  }
 
-    def render(value: (String, String => Callback, Boolean)) = value match {
-      case (color, onClick, active) =>
+  class Backend(
+      $ : BackendScope[Props, Unit]
+  ) {
+    def render(value: Props) = value match {
+      case Props(color, onClick, active) =>
         <.div(
           ^.width := "100%",
           ^.height := "100%",
@@ -31,62 +40,71 @@ object ColorCircles {
     }
   }
 
-  val Swatch = ScalaComponent
-    .builder[(String, String => Callback, Boolean)]("Swatch")
-    .initialState()
-    .renderBackend[SwatchBackend]
+  val Component = ScalaComponent
+    .builder[Props]("Swatch")
+    .renderBackend[Backend]
     .build
+}
 
-  import scalacss.ScalaCssReact._
-  import scalacss.DevDefaults._
+object CircleSwatch {
 
-  class CircleSwatchBackend(
-      $ : BackendScope[(String, String => Callback, Boolean), Unit]
-  ) {
+  final case class Props(
+      color: String,
+      onClick: String => Callback,
+      active: Boolean
+  )(key: Key) {
+    @inline def render: VdomElement = Component.withKey(key)(this)
+  }
 
-    object Styles extends StyleSheet.Inline {
-      import dsl._
+  object Styles extends StyleSheet.Inline {
+    import dsl._
 
-      val hoveringStyle = style(
-        transform := "scale(1)",
-        transition := "100ms transform ease",
-        &.hover(
-          transform := "scale(1.2)"
-        )
+    val hoveringStyle = style(
+      transform := "scale(1)",
+      transition := "100ms transform ease",
+      &.hover(
+        transform := "scale(1.2)"
       )
-    }
-    Styles.addToDocument()
+    )
+  }
+  Styles.addToDocument()
 
-    def render(value: (String, String => Callback, Boolean)) = value match {
-      case (color, onClick, active) =>
+  class Backend(
+      $ : BackendScope[Props, Unit]
+  ) {
+    def render(value: Props) = value match {
+      case Props(color, onClick, active) =>
         <.div(
           ^.width := 28.px,
           ^.height := 28.px,
           ^.marginRight := 14.px,
           ^.marginBottom := 14.px,
           Styles.hoveringStyle,
-          Swatch((color, onClick, active))
+          Swatch.Props(color, onClick, active).render
         )
     }
   }
 
-  val CircleSwatch = ScalaComponent
-    .builder[(String, String => Callback, Boolean)]("CircleSwatch")
-    .initialState()
-    .renderBackend[CircleSwatchBackend]
+  val Component = ScalaComponent
+    .builder[Props]("CircleSwatch")
+    .renderBackend[Backend]
     .build
+}
 
-  case class Props(
+object ColorCircle {
+
+  final case class Props(
       width: Int,
       onChange: String => Callback,
       colors: Seq[String],
       circleSize: Int,
       circleSpacing: Int,
       initial: StateSnapshot[String]
-  )
+  ) {
+    @inline def render: VdomElement = Component(this)
+  }
 
-  class ColorCircleBackend($ : BackendScope[Props, Unit]) {
-
+  final class Backend($ : BackendScope[Props, Unit]) {
     def render(props: Props) = {
       val colorSnapshot = props.initial
       val handleChange = (hexCode: String) => {
@@ -100,16 +118,17 @@ object ColorCircles {
         ^.marginRight := -14.px, //-$.props.map(_.circleSpacing),
         ^.marginBottom := -14.px, //-$.props.map(_.circleSpacing),
         props.colors.toVdomArray { c =>
-          CircleSwatch((c, handleChange, c == colorSnapshot.value))
+          CircleSwatch
+            .Props(c, handleChange, c == colorSnapshot.value)(c)
+            .render
         }
       )
     }
   }
 
-  val ColorCircle = ScalaComponent
+  val Component = ScalaComponent
     .builder[Props]("ColorCircle")
-    .initialState()
-    .renderBackend[ColorCircleBackend]
+    .renderBackend[Backend]
     .build
 
   val COLORS =

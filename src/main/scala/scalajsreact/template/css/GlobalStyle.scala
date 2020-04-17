@@ -11,10 +11,37 @@ object GlobalStyle extends StyleSheet.Inline {
       margin.`0`,
       padding.`0`,
       fontSize(14.px),
-      fontFamily := "Roboto, sans-serif"
+      fontFamily := """-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif,"Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol","Noto Color Emoji""""
     ),
     unsafeRoot("pre p")(
       margin.`0`
+    ),
+    unsafeRoot("h1, h2, h3, h4, h5, h6")(
+      marginBottom(0.5.rem),
+      fontWeight._500,
+      lineHeight(1.2)
+    ),
+    unsafeRoot("h1")(
+      fontSize(2.5.rem)
+    ),
+    unsafeRoot("h2")(
+      fontSize(2.rem)
+    ),
+    unsafeRoot("h3")(
+      fontSize(1.75.rem)
+    ),
+    unsafeRoot("h4")(
+      fontSize(1.5.rem)
+    ),
+    unsafeRoot("h5")(
+      fontSize(1.25.rem)
+    ),
+    unsafeRoot("h6")(
+      fontSize(1.rem)
+    ),
+    unsafeRoot(".lead")(
+      fontSize(1.rem),
+      fontWeight._300
     )
   )
 }

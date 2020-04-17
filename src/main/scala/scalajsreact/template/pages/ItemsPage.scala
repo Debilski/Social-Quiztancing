@@ -28,7 +28,7 @@ object ItemsPage {
         Style.container,
         <.div(Style.nav,
               LeftNav(LeftNav.Props(Item.menu, P.selectedPage, P.ctrl))),
-        <.div(Style.content, P.selectedPage.render())
+        <.div(Style.content, P.selectedPage.render(P.ctrl))
       )
     }
     .build
