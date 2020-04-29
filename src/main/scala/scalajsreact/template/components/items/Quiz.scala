@@ -1,35 +1,23 @@
 package scalajsreact.template.components.items
 
+import io.circe._
+import io.circe.generic.auto._
+import io.circe.parser._
+import io.circe.syntax._
 import japgolly.scalajs.react._
-import japgolly.scalajs.react.vdom.html_<^._
-
-import org.scalajs.dom.{WebSocket, MessageEvent, Event, CloseEvent}
-import org.scalajs.dom.ext.{KeyCode, SessionStorage}
-import scala.scalajs.js
-
-import io.circe._, io.circe.generic.auto._, io.circe.parser._, io.circe.syntax._
-
-import io.circe.generic.extras.Configuration
-
-import scalajsreact.template.utils.Debounce
-
-import scala.scalajs.js.annotation.JSImport
-
-import scalajsreact.template.models.State._
-import scalajsreact.template.models.types._
-
-import scalajsreact.template.utils.ColorCircle
 import japgolly.scalajs.react.extra.StateSnapshot
-
 import japgolly.scalajs.react.extra.router.RouterCtl
-
+import japgolly.scalajs.react.vdom.html_<^._
+import org.scalajs.dom.ext.{KeyCode, SessionStorage}
+import org.scalajs.dom.{CloseEvent, Event, MessageEvent, WebSocket}
 import scalacss.DevDefaults._
 import scalacss.ScalaCssReact._
-import japgolly.scalajs.react.vdom.HtmlStyles.color
-import scalacss.internal.Attrs.marginBlockStart
-
+import scalajsreact.template.models.State._
+import scalajsreact.template.models.types._
 import scalajsreact.template.routes.Item
-import scalacss.internal.DslBase.ToStyle
+import scalajsreact.template.utils.{ColorCircle, Debounce, ReactAddons}
+
+import scala.scalajs.js
 
 trait MessageObj
 
@@ -65,22 +53,55 @@ object QuizData {
         "color" -> Json.fromString(color)
       )
 
-      $.modState(_.copy(color = color)) >>
+      ($.state >>= { (state: State) =>
+        val player = state.player.copy(player_color = color)
+        $.modState(_.copy(player = player))
+      }) >>
         $.state.map(_.ws.map(_.send(json_data.asJson.noSpaces)).getOrElse())
     }
 
     object Style extends StyleSheet.Inline {
       import dsl._
-      val container = style() //style(display.flex, minHeight(600.px))
+      val container = style(
+        maxWidth(1000.px)
+      ) //style(display.flex, minHeight(600.px))
 
       val header =
         style(borderBottom :=! "1px solid rgb(223, 220, 220)")
 
-      val unsafeInputs = playerColors.map{ case (idx, c) =>
-          (unsafeChild(s".player-$idx .answer-input input")(
-            &.focus (borderColor(Color(c)), boxShadow := "none", outline := "none")
-          ))
-      }.toVector
+      val unsafeInputs = playerColors
+        .map {
+          case (idx, c) =>
+            Vector(
+              unsafeChild(s".player-$idx .answer-input input")(
+                &.focus(
+                  borderColor(Color(c)),
+                  boxShadow := "none",
+                  outline := "none"
+                )
+              ),
+              unsafeChild(s".team-answers .player-$idx .answer-inner")(
+                &(
+                  borderBottomColor := Color(c),
+                  borderBottomWidth(2.px),
+                  borderBottomStyle := solid,
+                  boxShadow := "none",
+                  outline := "none"
+                )
+              ),
+              unsafeChild(
+                s".team-answers .player-$idx.colored-dot .colored-dot-inner"
+              )(
+                &(
+                  borderColor := Color(c),
+                  borderRadius(50.pc),
+                  boxShadow := f"inset 0 0 0 2px ${c}"
+                )
+              )
+            )
+        }
+        .toVector
+        .flatten
 
       val content = style(
         padding(30.px),
@@ -92,6 +113,16 @@ object QuizData {
           width(250.px),
           fontSize(1.1.rem)
         ),
+        unsafeChild(".item-enter")(opacity(0)),
+        unsafeChild(".item-enter-active")(
+          opacity(1),
+          transition := "opacity 500ms ease-in"
+        ),
+        unsafeChild(".item-exit")(opacity(1)),
+        unsafeChild(".item-exit-active")(
+          opacity(0),
+          transition := "opacity 500ms ease-in"
+        ),
         unsafeInputs
       )
     }
@@ -100,10 +131,14 @@ object QuizData {
     private val colorPickerRef = Ref.toScalaComponent(ColorCircle.Component)
 
     def render(s: State) = {
-      val colorZ = $.zoomState(_.color)(value => _.copy(color = value))
+      val playerZ = $.zoomState(_.player)(value => _.copy(player = value))
+      val colorZ =
+        playerZ.zoomState(_.player_color)(value => _.copy(player_color = value))
 
       val stateSnapshot = StateSnapshot(s).setStateVia($)
-      val colorV = stateSnapshot.zoomState(_.color)(c => _.copy(color = c))
+      val playerV = stateSnapshot.zoomState(_.player)(p => _.copy(player = p))
+      val colorV =
+        playerV.zoomState(_.player_color)(c => _.copy(player_color = c))
       val playerClass: Option[String] =
         playerFromColor(colorV.value).map(idx => s"player-$idx")
 
@@ -121,12 +156,13 @@ object QuizData {
           Style.content,
           <.div(s"State info: ${stateSnapshot.value.toString}"),
           <.div(
-          ^.`class` :=? playerClass,
-          GameId(stateSnapshot, sendMessage),
-          TeamId.Component(stateSnapshot, sendMessage),
-          PlayerId.Component(stateSnapshot, sendMessage),
-          GameHeader.Component(stateSnapshot, sendMessage),
-          QuestionList_.Component(stateSnapshot, sendMessage),
+            ^.`class` :=? playerClass,
+            GameId(stateSnapshot, sendMessage),
+            TeamId.Component(stateSnapshot, sendMessage),
+            PlayerId.Component(stateSnapshot, sendMessage),
+            PlayerName.Component(stateSnapshot, sendMessage),
+            GameHeader.Component(stateSnapshot, sendMessage),
+            QuestionList_.Component(stateSnapshot, sendMessage)
           ),
           <.h4("Connection log"),
           <.pre(
@@ -199,18 +235,36 @@ object QuizData {
                     case Right(q) =>
                       direct.modState(_.copy(questions = q))
                   }
+                case "team_id" =>
+                  msg.payload.as[Team] match {
+                    case Left(error) =>
+                      direct.modState(
+                        _.log(
+                          s"Error decoding team_id: ${error.getMessage}"
+                        )
+                      )
+                    case Right(
+                        t @ Team(team_name, team_code, members, self_id)
+                        ) =>
+                      val oldTeam = direct.state.team.map(_.team_code)
+                      direct.modState(_.copy(team = Some(t)))
+                      // clear answers if team has changed
+                      if (Some(team_code) != oldTeam) {
+                        direct.modState(_.copy(answers = Map.empty))
+                      }
+                  }
                 case "player_id" =>
-                  msg.payload.as[(String, Option[String])] match {
+                  msg.payload.as[Player] match {
                     case Left(error) =>
                       direct.modState(
                         _.log(
                           s"Error decoding player_id: ${error.getMessage}"
                         )
                       )
-                    case Right((id, color)) =>
-                      SessionStorage.update("player_id", id)
-                      direct.modState(_.copy(player_id = id))
-                      color.foreach { c => direct.modState(_.copy(color = c)) }
+                    case Right(player) =>
+                      SessionStorage
+                        .update("player_id", player.player_uuid.toString())
+                      direct.modState(_.copy(player = player))
                   }
                 case "answer_changed" =>
                   msg.payload.as[AnswerUpdate] match {
@@ -220,10 +274,29 @@ object QuizData {
                           s"Error decoding update_answer: ${error.getMessage}"
                         )
                       )
-                    case Right(AnswerUpdate(answer, player_id, question_uuid)) =>
-                      val ans = Answer(answer_by = "x", answer_text = answer, answer_uuid = player_id, question_uuid = question_uuid)
-                      direct.modState(_.copy(answers = direct.state.answers.filterNot(_.answer_uuid == ans.answer_uuid) + ans))
+                    case Right(
+                        AnswerUpdate(
+                          answer,
+                          player_id,
+                          answer_uuid,
+                          question_uuid,
+                          votes,
+                          timestamp
+                        )
+                        ) =>
+                      val ans = Answer(
+                        player_id = player_id,
+                        answer_text = answer,
+                        answer_uuid = answer_uuid,
+                        question_uuid = question_uuid,
+                        votes = votes,
+                        timestamp = timestamp
+                      )
+                      direct.modState(
+                        _.copy(answers = addToGivenAnswers(direct.state.answers, ans))
+                      )
                   }
+                case "update_answer" => // todo
               }
           }
           direct.modState(_.log(s"Echo: ${e.data.toString}"))
@@ -281,12 +354,11 @@ object QuizData {
           None,
           Vector.empty,
           game_uuid,
-          Team(""),
-          "",
+          None,
+          Player(java.util.UUID.randomUUID, "", ""), // TODO set good defaults
           0,
-          "",
           QuestionList(20, Vector.empty),
-          Set.empty,
+          Map.empty,
           Vector.empty,
           p.routerCtl
         )
@@ -399,114 +471,6 @@ object Game {
     .build
 }
 
-object AnswerInput {
-  val Component = ScalaComponent
-    .builder[WS[(Question, AnswerSet)]]("AnswerInput")
-    .render_P {
-      case ((q, a), wsSnapshot, sendMessage) =>
-//     def onChange(e: ReactEventFromInput): Callback = {
-//        val newMessage = e.target.value
-//        val newTeamC = $.state.map(_.team).map(_.copy(team_id = newMessage))
-//        newTeamC >>= (nt => $.modState(_.copy(team = nt)))
-//      }
-
-//      // Can only send if WebSocket is connected and user has entered text
-//      val send: Option[Callback] =
-//        for {
-//          ws <- s.ws if s.allowSend
-//          val json_data = Json.obj("action" -> Json.fromString("load_game"), "game_id" -> Json.fromString(s.team.team_id))
-//        } yield b.sendMessage(ws, json_data.asJson.noSpaces)
-
-//      def sendOnEnter(e: ReactKeyboardEvent): Callback =
-//        CallbackOption
-//          .keyCodeSwitch(e) {
-//            case KeyCode.Enter => send.getOrEmpty
-//          }
-//          .asEventDefault(e)
-
-        def changedAnswer(e: ReactEventFromInput) =
-          e.extract(_.target.value)(value => {
-//       $.state.map{ s =>
-//         for {
-//           ws_ <- s.ws
-//         } ws_.send(ReqInfo.asJson.noSpaces)
-//
-///       } >>
-            print(value)
-            //$.modState(_.copy(filterText = value))
-          })
-
-        val delayedOnAnswerChange: ((java.util.UUID, String)) => Callback =
-          Debounce.callback() {
-            case (qid, value) =>
-              val json_data = Json.obj(
-                "action" -> Json.fromString("update_answer"),
-                "question_uuid" -> Json.fromString(qid.toString),
-                "answer" -> Json.fromString(value)
-              )
-              sendMessage(wsSnapshot.value.get, json_data.asJson.noSpaces)
-          }
-
-        def onAnswerChange(q: java.util.UUID)(e: ReactEventFromInput) =
-          e.extract(_.target.value)(value => {
-//       $.state.map{ s =>
-//         for {
-//           ws_ <- s.ws
-//         } ws_.send(ReqInfo.asJson.noSpaces)
-//
-///       } >>
-            delayedOnAnswerChange(q, value)
-          })
-
-        //  val onAnswerChange: (ReactEventFromInput) => Callback = Debounce.callback() { case e =>
-
-        <.form(
-          ^.`class` := "answer-input",
-          <.input.text(
-            ^.placeholder := "Answer ...",
-//            ^.value := s.filterText,
-            ^.onChange ==> onAnswerChange(q.question_uuid)
-          )
-        )
-    }
-    .build
-}
-
-object Answers {
-  val Component = ScalaComponent
-    .builder[WS[(Question, AnswerSet)]]("Answers")
-    .render_P {
-      case ((q, a), wsSnapshot, sendMessage) =>
-        <.div(
-          AnswerInput.Component(((q, a), wsSnapshot, sendMessage)),
-          <.ol(a.toTagMod(i => <.li(^.color := i.answer_by, i.answer_text)))
-        )
-    }
-    .build
-}
-
-object Question_ {
-  val Component = ScalaComponent
-    .builder[WS[(Question, AnswerSet)]]("Question")
-    .render_P {
-      case ((q, a), wsSnapshot, sendMessage) =>
-        <.div(
-          <.header(
-            <.p(
-              ^.`class` := "lead",
-              s"Question ${q.idx}",
-              ^.textTransform := "uppercase",
-              ^.letterSpacing := 2.px,
-              VdomStyle("marginBlockEnd") := 0.px
-            ),
-            <.h2(q.title, VdomStyle("marginBlockStart") := 0.px)
-          ),
-          Answers.Component(((q, a), wsSnapshot, sendMessage))
-        )
-    }
-    .build
-}
-
 
 object GameHeader {
   val Component = ScalaComponent
@@ -518,113 +482,3 @@ object GameHeader {
     .build
 }
 
-object QuestionList_ {
-  val Component = ScalaComponent
-    .builder[StateSnapshotWS[State]]("QuestionList")
-    .render_P {
-      case (stateSnapshot, sendMessage) =>
-        val wsSnapshot = stateSnapshot.zoomState(_.ws)(w => _.copy(ws = w))
-        val answers = stateSnapshot.value.answers
-        stateSnapshot.value.questions.questions.zipWithIndex.map {
-          case (q, idx) =>
-            Question_.Component.withKey(s"qid-${idx}")(
-              ((q, answers), wsSnapshot, sendMessage)
-            )
-        }.toVdomArray
-    }
-    .build
-}
-
-object TeamId {
-  val Component = ScalaComponent
-    .builder[StateSnapshotWS[State]]("TeamId")
-    .render_P {
-      case (stateSnapshot, sendMessage) =>
-        def onChange(e: ReactEventFromInput): Callback = {
-          val newId = e.target.value
-          stateSnapshot.modState(s =>
-            s.copy(team = s.team.copy(team_id = newId))
-          )
-        }
-
-        // Can only send if WebSocket is connected and user has entered text
-        val send: Option[Callback] =
-          if (stateSnapshot.value.team.team_id.isEmpty())
-            None
-            else
-          Some(Callback(stateSnapshot.value.joinTeam(stateSnapshot.value.team.team_id)))
-
-        def sendOnEnter(e: ReactKeyboardEvent): Callback =
-          CallbackOption
-            .keyCodeSwitch(e) {
-              case KeyCode.Enter => send.getOrEmpty
-            }
-            .asEventDefault(e)
-
-        def sendOnClick(e: ReactMouseEvent): Option[Callback] = {
-          e.preventDefault()
-          send
-        }
-
-        <.form(
-          <.input.text(
-            ^.autoFocus := true,
-            ^.placeholder := "Team ID",
-            ^.value := stateSnapshot.value.team.team_id,
-            ^.onChange ==> onChange,
-            ^.onKeyDown ==> sendOnEnter
-          ),
-          <.button(
-            ^.disabled := send.isEmpty, // Disable button if unable to send
-            ^.onClick ==>? sendOnClick,
-            "Send"
-          )
-        )
-    }
-    .build
-}
-
-object PlayerId {
-  val Component = ScalaComponent
-    .builder[StateSnapshotWS[State]]("PlayerId")
-    .render_P {
-      case (stateSnapshot, sendMessage) =>
-        def onChange(e: ReactEventFromInput): Callback = {
-          val newMessage = e.target.value
-          stateSnapshot.modState(_.copy(player_id = newMessage))
-        }
-
-        // Can only send if WebSocket is connected and user has entered text
-        val send: Option[Callback] =
-          for {
-            ws <- stateSnapshot.value.ws if stateSnapshot.value.allowSend
-            json_data = Json.obj(
-              "action" -> Json.fromString("load_player"),
-              "player_id" -> Json.fromString(stateSnapshot.value.player_id)
-            )
-          } yield sendMessage(ws, json_data.asJson.noSpaces)
-
-        def sendOnEnter(e: ReactKeyboardEvent): Callback =
-          CallbackOption
-            .keyCodeSwitch(e) {
-              case KeyCode.Enter => send.getOrEmpty
-            }
-            .asEventDefault(e)
-
-        <.form(
-          <.input.text(
-            ^.autoFocus := true,
-            ^.placeholder := "Player ID",
-            ^.value := stateSnapshot.value.player_id,
-            ^.onChange ==> onChange,
-            ^.onKeyDown ==> sendOnEnter
-          ),
-          <.button(
-            ^.disabled := send.isEmpty, // Disable button if unable to send
-            ^.onClick -->? send, // --> suffixed by ? because it's for Option[Callback]
-            "Send"
-          )
-        )
-    }
-    .build
-}

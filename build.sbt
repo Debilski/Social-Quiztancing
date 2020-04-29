@@ -83,7 +83,7 @@ dependencyOverrides ++= Seq(
 )
 
 libraryDependencies ++= Seq(
-  "org.webjars.npm" % "react-color" % "2.17.3"
+  "org.webjars.npm" % "react-color" % "2.17.3",
 )
 
 //enablePlugins(WorkbenchPlugin)

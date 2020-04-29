@@ -27,37 +27,49 @@ object State {
   case class Init(action: String, uuid: Option[String])
 
   case class Message(action: String)
-  case class Team(team_id: String)
+  case class Team(team_name: String, team_code: String, members: Set[TeamMember], self_id: Int)
+  case class TeamMember(player_name: String, player_color: String, player_id: Int)
+  implicit val TeamMemberOrdering: Ordering[TeamMember] = Ordering.by(teamMember => (teamMember.player_name, teamMember.player_id))
 
-  case class AnswerUpdate(answer: String, player_id: java.util.UUID, question_uuid: java.util.UUID)
-  case class Answer(answer_by: String, answer_text: String, answer_uuid: java.util.UUID, question_uuid: java.util.UUID)
-  type AnswerSet = Set[Answer]
+  case class AnswerUpdate(answer: String, player_id: Int, answer_uuid: java.util.UUID, question_uuid: java.util.UUID, votes: Vector[Int], timestamp: Long)
+  case class Answer(player_id: Int, answer_text: String, answer_uuid: java.util.UUID, question_uuid: java.util.UUID, votes: Vector[Int], timestamp: Long)
+
+  implicit val AnswerOrdering: Ordering[Answer] = Ordering.by(answer => (-answer.votes.size, answer.timestamp))
+
+  type AnswerSet = Vector[Answer]
+  type GivenAnswers = Map[java.util.UUID, AnswerSet]
+
+  def addToGivenAnswers(givenAnswers: GivenAnswers, answer: Answer) = {
+    val question_uuid = answer.question_uuid
+    val filtered = givenAnswers.getOrElse(question_uuid, Vector.empty).filterNot(_.answer_uuid == answer.answer_uuid)
+    givenAnswers.updated(question_uuid, (filtered :+ answer).sorted)
+  }
 
   case class QuestionList(num_questions: Int, questions: Vector[Question])
   case class Question(title: String, idx: Int, question_uuid: java.util.UUID)
 
   case class Game(game_name: String, game_uuid: java.util.UUID)
 
+  case class Player(player_uuid: java.util.UUID, player_name: String, player_color: String)
+
   case class State(
       ws: Option[WebSocket],
       games_list: Vector[Game],
       game_uuid: Option[java.util.UUID],
-      team: Team,
-      player_id: String,
+      team: Option[Team],
+      player: Player,
       player_code: Int,
-      color: String,
       questions: QuestionList,
-      answers: AnswerSet,
+      answers: GivenAnswers,
       // serverState
       wsLog: Vector[String],
       ctl: RouterCtl[Item]
   ) {
     override def toString = productPrefix + (productElementNames zip productIterator).filterNot(_._1 == "wsLog").map(_._2).mkString("(", ",", ")")
 
-    def initWS() = {
+    def initWS(player_id: Option[String] = None) = {
       if (allowSend) {
-        val player_id = SessionStorage("player_id")
-        val msg = Init("init", player_id)
+        val msg = Init("init", player_id orElse SessionStorage("player_id"))
         ws.foreach(_.send(msg.asJson.noSpaces))
       }
     }
@@ -76,7 +88,17 @@ object State {
       if (allowSend) {
         val json_data = Json.obj(
           "action" -> Json.fromString("join_team"),
-          "team_id" -> Json.fromString(id)
+          "team_code" -> Json.fromString(id),
+        )
+        ws.foreach(_.send(json_data.asJson.noSpaces))
+      }
+    }
+
+    def setName(name: String) = {
+      if (allowSend) {
+        val json_data = Json.obj(
+          "action" -> Json.fromString("set_name"),
+          "player_name" -> Json.fromString(name),
         )
         ws.foreach(_.send(json_data.asJson.noSpaces))
       }
