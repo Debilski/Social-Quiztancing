@@ -47,18 +47,6 @@ object QuizData {
   )
 
   class Backend($ : BackendScope[Props, State]) {
-    def onColorChange(color: String): Callback = {
-      val json_data = Json.obj(
-        "action" -> Json.fromString("set_color"),
-        "color" -> Json.fromString(color)
-      )
-
-      ($.state >>= { (state: State) =>
-        val player = state.player.copy(player_color = color)
-        $.modState(_.copy(player = player))
-      }) >>
-        $.state.map(_.ws.map(_.send(json_data.asJson.noSpaces)).getOrElse())
-    }
 
     object Style extends StyleSheet.Inline {
       import dsl._
@@ -142,25 +130,26 @@ object QuizData {
       val playerClass: Option[String] =
         playerFromColor(colorV.value).map(idx => s"player-$idx")
 
+      def styledPlayer(name: String, color: String) =
+                    <.span(
+                      name,
+                      ^.borderBottom := s"1px double ${color}"
+                    )
+
       <.div(
         Style.container,
         <.div(
           Style.header,
-          <.h1("Social Quiztancing"),
-          colorPickerRef.component(
-            ColorCircle
-              .Props(14, onColorChange, colors, 15, 15, colorV)
-          )
+          <.h1("Social Quiztancing")
         ),
         <.div(
           Style.content,
-          <.div(s"State info: ${stateSnapshot.value.toString}"),
+//          <.div(s"State info: ${stateSnapshot.value.toString}"),
+          PlayerInfo.Component(stateSnapshot, sendMessage),
           <.div(
             ^.`class` :=? playerClass,
             GameId(stateSnapshot, sendMessage),
             TeamId.Component(stateSnapshot, sendMessage),
-            PlayerId.Component(stateSnapshot, sendMessage),
-            PlayerName.Component(stateSnapshot, sendMessage),
             GameHeader.Component(stateSnapshot, sendMessage),
             QuestionList_.Component(stateSnapshot, sendMessage)
           ),
@@ -216,65 +205,77 @@ object QuizData {
             case Right(msg) =>
               print(msg)
               direct.modState(_.log(s" connecting: ${msg.payload}"))
+
+              def logFail(err: DecodingFailure) = direct.modState(
+                        _.log(s"Error decoding ${msg.msg_type}: ${err.getMessage}")
+              )
+              implicit class JsonExt(json: Json) {
+                def asMatch[A: Decoder](fn: A => Unit) = json.as[A] match {
+                  case Left(err) => logFail(err)
+                  case Right(x) => fn(x)
+                }
+              }
+
               msg.msg_type match {
                 case "games_list" =>
-                  msg.payload.as[Vector[Game]] match {
-                    case Left(error) =>
-                      direct.modState(
-                        _.log(s"Error decoding games_list: ${error.getMessage}")
-                      )
-                    case Right(q) =>
+                  msg.payload.asMatch[Vector[Game]] { q =>
                       direct.modState(_.copy(games_list = q))
                   }
+
                 case "init" =>
-                  msg.payload.as[QuestionList] match {
-                    case Left(error) =>
-                      direct.modState(
-                        _.log(s"Error decoding init: ${error.getMessage}")
-                      )
-                    case Right(q) =>
+                  msg.payload.asMatch[QuestionList] { q =>
                       direct.modState(_.copy(questions = q))
                   }
                 case "team_id" =>
-                  msg.payload.as[Team] match {
-                    case Left(error) =>
-                      direct.modState(
-                        _.log(
-                          s"Error decoding team_id: ${error.getMessage}"
-                        )
-                      )
-                    case Right(
-                        t @ Team(team_name, team_code, members, self_id)
-                        ) =>
+                  msg.payload.asMatch[Team] {
+                    case t @ Team(team_name, team_code, members, self_id) =>
                       val oldTeam = direct.state.team.map(_.team_code)
                       direct.modState(_.copy(team = Some(t)))
                       // clear answers if team has changed
                       if (Some(team_code) != oldTeam) {
                         direct.modState(_.copy(answers = Map.empty))
                       }
+                      // update Player, if member with my Id has changed
+                      val me = members.find(_.player_id == self_id)
+                      direct.modStateOption{ s =>
+                        me.map { m =>
+                          val updatedPlayer = s.player.copy(player_name = m.player_name, player_color = m.player_color)
+                          s.copy(player = updatedPlayer)
+                        }
+                      }
                   }
                 case "player_id" =>
-                  msg.payload.as[Player] match {
-                    case Left(error) =>
-                      direct.modState(
-                        _.log(
-                          s"Error decoding player_id: ${error.getMessage}"
-                        )
-                      )
-                    case Right(player) =>
+                  msg.payload.asMatch[Player] { player =>
                       SessionStorage
                         .update("player_id", player.player_uuid.toString())
                       direct.modState(_.copy(player = player))
                   }
-                case "answer_changed" =>
-                  msg.payload.as[AnswerUpdate] match {
-                    case Left(error) =>
+                case "set_answers" =>
+                  msg.payload.asMatch[Seq[AnswerUpdate]] { answers =>
+                    val newAnswers = answers.foldLeft(Map.empty: GivenAnswers){
+                      case (ansMap, AnswerUpdate(
+                          answer,
+                          player_id,
+                          answer_uuid,
+                          question_uuid,
+                          votes,
+                          timestamp
+                        )) => addToGivenAnswers(ansMap, Answer(
+                        player_id = player_id,
+                        answer_text = answer,
+                        answer_uuid = answer_uuid,
+                        question_uuid = question_uuid,
+                        votes = votes,
+                        timestamp = timestamp
+                      ))
+                    }
                       direct.modState(
-                        _.log(
-                          s"Error decoding update_answer: ${error.getMessage}"
-                        )
+                        _.copy(answers = newAnswers)
                       )
-                    case Right(
+                  }
+                case "answer_changed" =>
+                  msg.payload.asMatch[AnswerUpdate] {
+                    case
                         AnswerUpdate(
                           answer,
                           player_id,
@@ -282,7 +283,6 @@ object QuizData {
                           question_uuid,
                           votes,
                           timestamp
-                        )
                         ) =>
                       val ans = Answer(
                         player_id = player_id,

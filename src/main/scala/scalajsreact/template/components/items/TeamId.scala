@@ -59,7 +59,7 @@ object TeamId {
                       ^.borderBottom := s"1px double ${member.player_color}"
                     )
 
-                  members.to(Seq).sorted.map(styledMember).mkReactFragment(", ")
+                  members.to(Seq).sorted.map(styledMember).mkTagMod(", ")
                 },
                 "."
               )

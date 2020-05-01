@@ -57,8 +57,6 @@ class GUID(TypeDecorator):
 conn = sqlite3.connect("quiz.db", detect_types=sqlite3.PARSE_COLNAMES)
 conn.execute("PRAGMA foreign_keys = 1")
 
-USER_SESSION_MAPPING = {}
-
 def init_db(c):
     tables = [
         """CREATE TABLE IF NOT EXISTS teams
@@ -239,25 +237,8 @@ init_db(Session())
 #logging.basicConfig()
 
 USERS = set()
-
-
-GAME_INFO = {
-    "num_questions": 20,
-    "questions": [
-        {"title": "Question 1 Text", "answers": []},
-        {"title": "Question 2 Text", "answers": []},
-    ],
-}
-
-SUBSCRIPTIONS = weakref.WeakKeyDictionary()
-
+USER_SESSION_MAPPING = {}
 TEAM_IDS = {}
-TEAM_ANSWERS = {}
-PLAYER_COLORS = weakref.WeakKeyDictionary()
-PLAYER_NAMES = weakref.WeakKeyDictionary()
-
-
-
 
 def games_list():
     session = Session()
@@ -277,9 +258,15 @@ def register_uuid(websocket, uuid):
     return uuid
 
 async def unregister(player):
-    USERS.remove(player)
+    try:
+        USERS.remove(player)
+    except KeyError:
+        pass
 
-    del USER_SESSION_MAPPING[player]
+    try:
+        del USER_SESSION_MAPPING[player]
+    except KeyError:
+        pass
     try:
         del TEAM_IDS[player]
     except KeyError:
@@ -308,6 +295,15 @@ async def set_name(player: "PlayerConnection", session: Session, *, player_name)
     if team:
         await send_team_info(player, session, team=team)
 
+    payload = {
+        "player_uuid": str(player.in_db(session).uuid),
+        "player_name": player.in_db(session).name,
+        "player_color": player.in_db(session).color
+    }
+    message = {"msg_type": "player_id", "payload": payload}
+    await player.send(message)
+
+
 @register_handler
 async def set_color(player, session, *, color):
     player.set_color(session, color)
@@ -316,12 +312,33 @@ async def set_color(player, session, *, color):
     if team:
         await send_team_info(player, session, team=team)
 
+    payload = {
+        "player_uuid": str(player.in_db(session).uuid),
+        "player_name": player.in_db(session).name,
+        "player_color": player.in_db(session).color
+    }
+    message = {"msg_type": "player_id", "payload": payload}
+    await player.send(message)
 
 async def notify_team(message, team_id):
     # send message to all in team
     print("sending to", list(TEAM_IDS.items()))
     json_msg = json.dumps(message)
-    await asyncio.wait([user.send(json_msg) for user, tid in TEAM_IDS.items() if tid == team_id])
+    print(f"{fg.red}{len(TEAM_IDS)} TEAM_IDS. Sending to {len(list(tid for tid in TEAM_IDS.values() if tid == team_id))}{fg.rs}")
+
+    ws_remove = []
+    async def send_ignore_closed(ws, msg):
+        try:
+            await ws.send(msg)
+        except websockets.exceptions.ConnectionClosedError:
+            print(f"Closing WS {ws}")
+            ws_remove.append(ws)
+
+    await asyncio.wait([send_ignore_closed(user, json_msg) for user, tid in TEAM_IDS.items() if tid == team_id])
+    if ws_remove:
+        await asyncio.wait([unregister(ws) for ws in ws_remove])
+
+    print(f"{fg.red}{len(TEAM_IDS)} TEAM_IDS.{fg.rs}")
 
 
 @register_handler
@@ -395,11 +412,6 @@ async def load_game(player: "PlayerConnection", session, *, game_uuid):
             question_payload["idx"] = idx
             question_payload["question_uuid"] = str(question.uuid)
 
-#           question_payload["answers"] = []
-#           for answer in session.query(GivenAnswer).filter(GivenAnswer.question_id == question.id):
-#               player = session.query(Player).filter(Player.id == answer.player_id).first()
-#               answer_payload = {"answer_text": answer.answer, "answer_by": player.color}
-#               question_payload["answers"].append(answer_payload)
             payload["questions"].append(question_payload)
 
     message = {"msg_type": "init", "payload": payload}
@@ -454,8 +466,8 @@ async def send_answers(player: "PlayerConnection", session, *, game_uuid=None, t
         payload = all_answers(session, game_uuid, team)
     else:
         payload = []
-    for m in payload:
-        message = {"msg_type": "answer_changed", "payload": m}
+    if payload:
+        message = {"msg_type": "set_answers", "payload": payload}
         await player.send(message)
 
 def all_answers(session, game_uuid, team):
@@ -468,7 +480,7 @@ def all_answers(session, game_uuid, team):
             "votes": [v.subplayer_id for v in a.votes],
             "timestamp": int(a.time_created.timestamp() * 1000_000)
     }
-    for a in session.query(GivenAnswer).join(GivenAnswer.player).filter(PlayerInGame.team==team).options(joinedload(GivenAnswer.votes))]
+    for a in session.query(GivenAnswer).join(GivenAnswer.player).filter(PlayerInGame.team==team).options(joinedload(GivenAnswer.votes)).options(joinedload(GivenAnswer.player))]
     return answers
 
 @register_handler

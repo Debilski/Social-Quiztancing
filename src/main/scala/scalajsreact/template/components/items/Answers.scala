@@ -45,7 +45,10 @@ object Answers {
             ^.padding := 5.px,
             ^.minWidth := 300.px,
             ReactAddons.FlipMove(
-              a.toVdomArray { i =>
+              a
+              // remove empty, unvoted answers from list
+              .filterNot(ans => ans.answer_text.isEmpty && ans.votes.size == 0)
+              .toVdomArray { i =>
                 val member = t.members.find(m => m.player_id == i.player_id)
                 val playerClass = member.flatMap(m =>
                   QuizData
