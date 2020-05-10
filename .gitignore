@@ -16,6 +16,10 @@ project/plugins/project/
 .scala_dependencies
 .worksheet
 
+# metals
+.metals
+.bloop
+
 #intellij idea
 .idea
 .idea_modules

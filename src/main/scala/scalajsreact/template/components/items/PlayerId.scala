@@ -16,7 +16,6 @@ object PlayerId {
     .initialState("")
     .renderPS {
       case (bs, (stateSnapshot, sendMessage), s) =>
-
         def onChange(e: ReactEventFromInput): Callback = {
           val newId = e.target.value
           bs.setState(newId)
@@ -28,8 +27,20 @@ object PlayerId {
             None
           else {
             try {
-              val uuid = java.util.UUID.fromString(s)
-              Some(Callback(stateSnapshot.value.initWS(Some(bs.state))) >> bs.setState(""))
+              val withDashes = if ((s: String).contains("-")) {
+                s
+              } else {
+                List(s.substring(0,8),
+                s.substring(8,12),
+                s.substring(12, 16),
+                s.substring(16, 20),
+                s.substring(20)).mkString("-")
+              }
+              val uuid = java.util.UUID.fromString(withDashes)
+              Some(
+                Callback(stateSnapshot.value.initWS(Some(bs.state))) >> bs
+                  .setState("")
+              )
             } catch {
               case _: java.lang.IllegalArgumentException => None
             }
@@ -47,18 +58,26 @@ object PlayerId {
           send
         }
 
-        <.form(
-          <.input.text(
-            ^.autoFocus := true,
-            ^.placeholder := "Player ID",
-            ^.value := bs.state,
-            ^.onChange ==> onChange,
-            ^.onKeyDown ==> sendOnEnter
+        <.div(
+          <.p(
+          s"Player id: ${stateSnapshot.value.player.player_uuid}",
+          <.br,
+          <.small(<.i("Only change this, when you know what you’re doing."))
           ),
-          <.button(
-            ^.disabled := send.isEmpty, // Disable button if unable to send
-            ^.onClick ==>? sendOnClick,
-            "Send"
+          <.form(
+            <.input.text(
+              ^.display := "inline",
+              ^.autoFocus := true,
+              ^.placeholder := "Player ID",
+              ^.value := bs.state,
+              ^.onChange ==> onChange,
+              ^.onKeyDown ==> sendOnEnter
+            ),
+            <.button(
+              ^.disabled := send.isEmpty, // Disable button if unable to send
+              ^.onClick ==>? sendOnClick,
+              "Change Player ID"
+            )
           )
         )
     }

@@ -6,7 +6,7 @@ object GlobalStyle extends StyleSheet.Inline {
 
   import dsl._
 
-  style(
+  style(/*
     unsafeRoot("body")(
       margin.`0`,
       padding.`0`,
@@ -38,10 +38,22 @@ object GlobalStyle extends StyleSheet.Inline {
     ),
     unsafeRoot("h6")(
       fontSize(1.rem)
-    ),
+    ),*/
     unsafeRoot(".lead")(
       fontSize(1.rem),
       fontWeight._300
+    ),
+    unsafeRoot(".alert-warning")(
+      color(Color("#856404")),
+      backgroundColor(Color("#fff3cd")),
+      borderColor(Color("#ffeeba"))
+    ),
+    unsafeRoot(".alert")(
+      position := "relative",
+      padding := ".75rem 1.25rem",
+      marginBottom(1.rem),
+      border := "1px solid transparent",
+      borderRadius(.25.rem)
     )
   )
 }

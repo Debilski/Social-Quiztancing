@@ -7,14 +7,14 @@ import io.circe.syntax._
 import japgolly.scalajs.react._
 import japgolly.scalajs.react.vdom.html_<^._
 import org.scalajs.dom.ext.KeyCode
-import scalajsreact.template.models.State.State
+import scalajsreact.template.models.State.{GameState, Team, TeamMember}
 import scalajsreact.template.models.types.StateSnapshotWS
 import scalajsreact.template.utils.ColorCircle
 import scalacss.DevDefaults._
 import scalacss.ScalaCssReact._
 
-object PlayerInfo {
-  type Props = StateSnapshotWS[State]
+object TeamInfo {
+  type Props = StateSnapshotWS[GameState]
   val colors = ColorCircle.COLORS
 
   object Style extends StyleSheet.Inline {
@@ -33,7 +33,7 @@ object PlayerInfo {
   final class Backend($ : BackendScope[Props, Boolean]) {
 
     def render(p: Props, showEdits: Boolean): VdomNode = {
-      val (stateSnapshot, sendMessage) = p
+      val (gameStateSnapshot, sendMessage) = p
 
       def styledPlayer(name: String, color: String) =
         <.span(
@@ -42,55 +42,43 @@ object PlayerInfo {
           ^.borderBottom := s"1px double ${color}"
         )
 
-      def onColorChange(color: String): Callback = {
-        val json_data = Json.obj(
-          "action" -> Json.fromString("set_color"),
-          "color" -> Json.fromString(color)
-        )
+      def styledMember(member: TeamMember) =
+        styledPlayer(member.player_name, member.player_color)
 
-        val player = stateSnapshot.value.player.copy(player_color = color)
-
-        (stateSnapshot.modState(_.copy(player = player))
-          >> Callback(
-            stateSnapshot.value.ws.foreach(_.send(json_data.asJson.noSpaces))
-          ))
-      }
-
-      val playerV = stateSnapshot.zoomState(_.player)(p => _.copy(player = p))
+      val playerV = gameStateSnapshot.zoomState(_.player)(p => _.copy(player = p))
       val colorV =
         playerV.zoomState(_.player_color)(c => _.copy(player_color = c))
 
       <.div(
         <.p(
-          "Player: ",
-          styledPlayer(
-            stateSnapshot.value.player.player_name,
-            stateSnapshot.value.player.player_color
-          ),
+          gameStateSnapshot.value.team match {
+            case Some(Team(team_name, team_code, members, self_id, quizadmin)) =>
+              <.span(
+                s"Joined ${if (quizadmin) "admin " else ""}team: $team_code with members: ", {
+                  members.to(Seq).sorted.map(styledMember).mkTagMod(", ")
+                },
+                "."
+              )
+            case _ => <.i("Enter a code to join a team.")
+          },
           " ",
           <.button(
             ^.onClick --> $.modState(s => !s),
-            "Change name and color."
+            "Change team."
           )
         ),
         <.div(
           Style.popupContent,
-          PlayerName.Component(stateSnapshot, sendMessage),
-          <.div(
-          ColorCircle.Component(
-            ColorCircle.Props(290, onColorChange, colors, 10, 10, colorV),
-          ),
+          TeamId.Component(gameStateSnapshot, sendMessage),
           ^.padding := 10.px,
-          ^.paddingLeft := 5.px,
-          ),
-          PlayerId.Component(stateSnapshot, sendMessage),
+          ^.paddingLeft := 5.px
         ).when(showEdits)
       )
     }
   }
 
   val Component = ScalaComponent
-    .builder[Props]("PlayerInfo")
+    .builder[Props]("TeamInfo")
     .initialState(false)
     .renderBackend[Backend]
     .build

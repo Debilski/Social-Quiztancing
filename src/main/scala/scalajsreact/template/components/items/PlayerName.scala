@@ -40,6 +40,7 @@ object PlayerName {
 
         <.form(
           <.input.text(
+            ^.display := "inline",
             ^.autoFocus := true,
             ^.placeholder := "Player Name",
             ^.value := bs.state,
@@ -49,7 +50,7 @@ object PlayerName {
           <.button(
             ^.disabled := send.isEmpty, // Disable button if unable to send
             ^.onClick ==>? sendOnClick,
-            "Update name"
+            "Change name"
           )
         )
 

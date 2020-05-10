@@ -19,6 +19,8 @@ import scalajsreact.template.utils.{ColorCircle, Debounce, ReactAddons}
 
 import scala.scalajs.js
 
+import japgolly.scalajs.react.extra.ReusabilityOverlay
+
 trait MessageObj
 
 case class ServerMessage(msg_type: String, payload: Json)
@@ -51,7 +53,7 @@ object QuizData {
     object Style extends StyleSheet.Inline {
       import dsl._
       val container = style(
-        maxWidth(1000.px)
+        //     maxWidth(1000.px)
       ) //style(display.flex, minHeight(600.px))
 
       val header =
@@ -130,39 +132,81 @@ object QuizData {
       val playerClass: Option[String] =
         playerFromColor(colorV.value).map(idx => s"player-$idx")
 
+      val gameSnapshot =
+        if (s.game.isDefined)
+          Some(
+            stateSnapshot.zoomState(s =>
+              GameState(
+                ws = s.ws,
+                game = s.game.get,
+                team = s.team,
+                player = s.player,
+                player_code = s.player_code,
+                questions = s.questions,
+                answers = s.answers,
+                selected_answers = s.selected_answers
+              )
+            )(g =>
+              _.copy(
+                ws = g.ws,
+                game = Some(g.game),
+                team = g.team,
+                player = g.player,
+                player_code = g.player_code,
+                questions = g.questions,
+                answers = g.answers,
+                selected_answers = g.selected_answers
+              )
+            )
+          )
+        else None
+
       def styledPlayer(name: String, color: String) =
-                    <.span(
-                      name,
-                      ^.borderBottom := s"1px double ${color}"
-                    )
+        <.span(
+          name,
+          ^.borderBottom := s"1px double ${color}"
+        )
 
       <.div(
         Style.container,
         <.div(
           Style.header,
-          <.h1("Social Quiztancing")
+          <.h1("Social Quiztancing"),
+          <.div(
+            ^.`class` := "alert alert-warning",
+            s"Lost connection to Quiz server (${QuizData.url}). ",
+            <.button(
+              "Click to reconnect.",
+              ^.onClick --> reconnectWebSocket
+            )
+          ).unless(stateSnapshot.value.ws.isDefined)
         ),
         <.div(
           Style.content,
-//          <.div(s"State info: ${stateSnapshot.value.toString}"),
+          ^.`class` :=? playerClass,
           PlayerInfo.Component(stateSnapshot, sendMessage),
-          <.div(
-            ^.`class` :=? playerClass,
-            GameId(stateSnapshot, sendMessage),
-            TeamId.Component(stateSnapshot, sendMessage),
-            GameHeader.Component(stateSnapshot, sendMessage),
-            QuestionList_.Component(stateSnapshot, sendMessage)
-          ),
-          <.h4("Connection log"),
-          <.pre(
-            ^.width := "83%",
-            ^.height := 300.px,
-            ^.overflow := "scroll",
-            ^.border := "1px solid"
-          )(
-            s.wsLog.map(<.p(_)): _*
-          ) // Display log
-        )
+          gameSnapshot match {
+            // show game if it exists
+            case Some(gs) =>
+              println(gs)
+              <.div(
+                TeamInfo.Component(gs, sendMessage),
+                GameHeader.Component(gs, sendMessage),
+                QuestionList_.Component(gs, sendMessage)
+              )
+            // show list of games otherwise
+            case None => GamesList.Component(stateSnapshot, sendMessage)
+          }
+        ),
+        <.h4("Connection log"),
+        <.pre(
+          ^.width := "83%",
+          ^.height := 300.px,
+          ^.overflow := "scroll",
+          ^.border := "1px solid"
+        )(
+          s.wsLog.map(<.p(_)): _*
+        ) // Display log
       )
     }
 
@@ -176,6 +220,8 @@ object QuizData {
 
       send >> updateState
     }
+
+    def reconnectWebSocket: Callback = start
 
     def start: Callback = {
 
@@ -193,7 +239,7 @@ object QuizData {
           // Indicate the connection is open
           direct.modState(_.log("Connected."))
           direct.state.initWS()
-          direct.state.game_uuid.foreach(direct.state.loadGame(_))
+          direct.props.game_uuid.foreach(direct.state.loadGame(_))
         }
 
         def onmessage(e: MessageEvent): Unit = {
@@ -203,32 +249,42 @@ object QuizData {
             case Left(error) => //
               direct.modState(_.log(s"Error: ${error}"))
             case Right(msg) =>
-              print(msg)
               direct.modState(_.log(s" connecting: ${msg.payload}"))
 
               def logFail(err: DecodingFailure) = direct.modState(
-                        _.log(s"Error decoding ${msg.msg_type}: ${err.getMessage}")
+                _.log(s"Error decoding ${msg.msg_type}: ${err.getMessage}")
               )
               implicit class JsonExt(json: Json) {
                 def asMatch[A: Decoder](fn: A => Unit) = json.as[A] match {
                   case Left(err) => logFail(err)
-                  case Right(x) => fn(x)
+                  case Right(x)  => fn(x)
                 }
               }
 
               msg.msg_type match {
                 case "games_list" =>
                   msg.payload.asMatch[Vector[Game]] { q =>
-                      direct.modState(_.copy(games_list = q))
+                    direct.modState(_.copy(games_list = q))
                   }
-
                 case "init" =>
-                  msg.payload.asMatch[QuestionList] { q =>
-                      direct.modState(_.copy(questions = q))
+                  msg.payload.asMatch[Game] { game =>
+                    direct.modState(
+                      _.copy(
+                        game = Some(game),
+                        questions =
+                          QuestionList(game.num_questions, Vector.empty)
+                      )
+                    )
                   }
                 case "team_id" =>
                   msg.payload.asMatch[Team] {
-                    case t @ Team(team_name, team_code, members, self_id) =>
+                    case t @ Team(
+                          team_name,
+                          team_code,
+                          members,
+                          self_id,
+                          quizadmin
+                        ) =>
                       val oldTeam = direct.state.team.map(_.team_code)
                       direct.modState(_.copy(team = Some(t)))
                       // clear answers if team has changed
@@ -237,52 +293,120 @@ object QuizData {
                       }
                       // update Player, if member with my Id has changed
                       val me = members.find(_.player_id == self_id)
-                      direct.modStateOption{ s =>
+                      direct.modStateOption { s =>
                         me.map { m =>
-                          val updatedPlayer = s.player.copy(player_name = m.player_name, player_color = m.player_color)
+                          val updatedPlayer = s.player.copy(
+                            player_name = m.player_name,
+                            player_color = m.player_color
+                          )
+                          import org.scalajs.dom.document
+                          document.body.style
+                            .setProperty("--focus", m.player_color)
                           s.copy(player = updatedPlayer)
                         }
                       }
                   }
                 case "player_id" =>
                   msg.payload.asMatch[Player] { player =>
-                      SessionStorage
-                        .update("player_id", player.player_uuid.toString())
-                      direct.modState(_.copy(player = player))
+                    SessionStorage
+                      .update("player_id", player.player_uuid.toString())
+                    import org.scalajs.dom.document
+                    document.body.style
+                      .setProperty("--focus", player.player_color)
+                    direct.modState(_.copy(player = player))
+
                   }
+
+                case "update_question" =>
+                  msg.payload.asMatch[Question] { question =>
+                    val questionList = direct.state.questions
+                    direct.modState(
+                      _.copy(questions = addToQuestionList(questionList, question))
+                    )
+                  }
+
+                case "set_questions" =>
+                  msg.payload.asMatch[Seq[Question]] { questions =>
+                    val newQuestionList = questions.foldLeft(
+                      direct.state.questions.copy(questions = Vector.empty)
+                    ) {
+                      case (questionList, q) =>
+                        addToQuestionList(questionList, q)
+                    }
+                    direct.modState(
+                      _.copy(questions = newQuestionList)
+                    )
+                  }
+
                 case "set_answers" =>
                   msg.payload.asMatch[Seq[AnswerUpdate]] { answers =>
-                    val newAnswers = answers.foldLeft(Map.empty: GivenAnswers){
-                      case (ansMap, AnswerUpdate(
-                          answer,
-                          player_id,
-                          answer_uuid,
-                          question_uuid,
-                          votes,
-                          timestamp
-                        )) => addToGivenAnswers(ansMap, Answer(
-                        player_id = player_id,
-                        answer_text = answer,
-                        answer_uuid = answer_uuid,
-                        question_uuid = question_uuid,
-                        votes = votes,
-                        timestamp = timestamp
-                      ))
+                    val newAnswers = answers.foldLeft(Map.empty: GivenAnswers) {
+                      case (
+                          ansMap,
+                          AnswerUpdate(
+                            answer,
+                            player_id,
+                            answer_uuid,
+                            question_uuid,
+                            votes,
+                            is_selected,
+                            timestamp
+                          )
+                          ) =>
+                        addToGivenAnswers(
+                          ansMap,
+                          Answer(
+                            player_id = player_id,
+                            answer_text = answer,
+                            answer_uuid = answer_uuid,
+                            question_uuid = question_uuid,
+                            votes = votes,
+                            is_selected = is_selected,
+                            timestamp = timestamp
+                          )
+                        )
                     }
-                      direct.modState(
-                        _.copy(answers = newAnswers)
-                      )
+                    direct.modState(
+                      _.copy(answers = newAnswers)
+                    )
                   }
+case "set_selected_answers" =>
+                  msg.payload.asMatch[Seq[SelectedAnswerUpdate]] { answers =>
+                    val newAnswers = answers.foldLeft(Map.empty: SelectedAnswers) {
+                      case (
+                          ansMap,
+                          SelectedAnswerUpdate(
+                            answer,
+                            answer_uuid,
+                            question_uuid,
+                            team_code
+                          )
+                          ) =>
+                        addToSelectedAnswers(
+                          ansMap,
+                          SelectedAnswer(
+                            answer = answer,
+                            answer_uuid = answer_uuid,
+                            question_uuid = question_uuid,
+                            team_code = team_code
+                          )
+                        )
+                    }
+                    direct.modState(
+                      _.copy(selected_answers = newAnswers)
+                    )
+                  }
+
                 case "answer_changed" =>
                   msg.payload.asMatch[AnswerUpdate] {
-                    case
-                        AnswerUpdate(
-                          answer,
-                          player_id,
-                          answer_uuid,
-                          question_uuid,
-                          votes,
-                          timestamp
+                    case AnswerUpdate(
+                        answer,
+                        player_id,
+                        answer_uuid,
+                        question_uuid,
+                        votes,
+                        is_selected,
+                        timestamp
                         ) =>
                       val ans = Answer(
                         player_id = player_id,
@@ -290,13 +414,31 @@ object QuizData {
                         answer_uuid = answer_uuid,
                         question_uuid = question_uuid,
                         votes = votes,
+                        is_selected = is_selected,
                         timestamp = timestamp
                       )
                       direct.modState(
-                        _.copy(answers = addToGivenAnswers(direct.state.answers, ans))
+                        _.copy(answers =
+                          addToGivenAnswers(direct.state.answers, ans)
+                        )
+                      )
+                  }
+                case "question_changed" =>
+                  msg.payload.asMatch[Question] {
+                    case q @ Question(
+                          title,
+                          idx,
+                          question_uuid,
+                          is_active
+                        ) =>
+                      direct.modState(
+                        _.copy(questions =
+                          addToQuestionList(direct.state.questions, q)
+                        )
                       )
                   }
                 case "update_answer" => // todo
+                case rest            => print(s"Not matching: ${rest}")
               }
           }
           direct.modState(_.log(s"Echo: ${e.data.toString}"))
@@ -339,9 +481,12 @@ object QuizData {
     }
 
     def end: Callback = {
+      // must reset, otherwise we get error for not properly unmounting
+      def resetWebSocket =
+        $.state.map(_.ws.foreach(_.onclose = { (e: CloseEvent) => () }))
       def closeWebSocket = $.state.map(_.ws.foreach(_.close())).attempt
       def clearWebSocket = $.modState(_.copy(ws = None))
-      closeWebSocket >> clearWebSocket
+      resetWebSocket >> closeWebSocket >> clearWebSocket
     }
 
   }
@@ -353,11 +498,12 @@ object QuizData {
         State(
           None,
           Vector.empty,
-          game_uuid,
+          None,
           None,
           Player(java.util.UUID.randomUUID, "", ""), // TODO set good defaults
           0,
           QuestionList(20, Vector.empty),
+          Map.empty,
           Map.empty,
           Vector.empty,
           p.routerCtl
@@ -366,68 +512,6 @@ object QuizData {
     .renderBackend[Backend]
     .componentDidMount(_.backend.start)
     .componentWillUnmount(_.backend.end)
-    .build
-
-  val GameId = ScalaComponent
-    .builder[StateSnapshotWS[State]]("GameId")
-    .render_P {
-      case (stateSnapshot, sendMessage) =>
-        def onChange(e: ReactEventFromInput): Callback = {
-          val newMessage = e.target.value
-          val newUUID =
-            try { Some(java.util.UUID.fromString(newMessage)) }
-            catch { case _: Exception => None }
-          stateSnapshot.modState(_.copy(game_uuid = newUUID))
-        }
-
-        // Can only send if WebSocket is connected and user has entered text
-        val send: Option[Callback] =
-          for {
-            game_uuid <- stateSnapshot.value.game_uuid
-          } yield Callback(stateSnapshot.value.loadGame(game_uuid))
-
-        def sendOnEnter(e: ReactKeyboardEvent): Callback =
-          CallbackOption
-            .keyCodeSwitch(e) {
-              case KeyCode.Enter => send.getOrEmpty
-            }
-            .asEventDefault(e)
-
-        def sendOnClick(e: ReactMouseEvent): Option[Callback] = {
-          e.preventDefault()
-          send
-        }
-
-        def gamesList() = {
-          stateSnapshot.value.games_list.map { game =>
-            stateSnapshot.value.ctl.link(Item.Quiz(Some(game.game_uuid)))(
-              <.button(game.game_name),
-              ^.key := game.game_uuid.toString()
-            ),
-          }.toVdomArray
-        }
-
-        <.div(
-          gamesList(),
-          <.form(
-            ^.onSubmit -->? send,
-            <.input.text(
-              ^.autoFocus := true,
-              ^.placeholder := "Game ID",
-              ^.value := stateSnapshot.value.game_uuid
-                .map(_.toString)
-                .getOrElse(""),
-              ^.onChange ==> onChange,
-              ^.onKeyDown ==> sendOnEnter
-            ),
-            <.button(
-              ^.disabled := send.isEmpty, // Disable button if unable to send
-              ^.onClick ==>? sendOnClick, // --> suffixed by ? because it's for Option[Callback]
-              "Send"
-            )
-          )
-        )
-    }
     .build
 
   def apply(props: Props)(implicit ctl: RouterCtl[Item]) =
@@ -471,14 +555,12 @@ object Game {
     .build
 }
 
-
 object GameHeader {
   val Component = ScalaComponent
-    .builder[StateSnapshotWS[State]]("GameHeader")
+    .builder[StateSnapshotWS[GameState]]("GameHeader")
     .render_P {
-      case (stateSnapshot, sendMessage) =>
-        <.h2(s"Game: ${stateSnapshot.value.game_uuid}")
+      case (gameStateSnapshot, sendMessage) =>
+        <.h2(s"Quiz: ${gameStateSnapshot.value.game.game_name}")
     }
     .build
 }
-

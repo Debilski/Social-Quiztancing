@@ -12,6 +12,7 @@ object Swatch {
   final case class Props(
       color: String,
       onClick: String => Callback,
+      circleSize: Int,
       active: Boolean
   ) {
     @inline def render: VdomElement = Component(this)
@@ -21,7 +22,7 @@ object Swatch {
       $ : BackendScope[Props, Unit]
   ) {
     def render(value: Props) = value match {
-      case Props(color, onClick, active) =>
+      case Props(color, onClick, circleSize, active) =>
         <.div(
           ^.width := "100%",
           ^.height := "100%",
@@ -32,7 +33,7 @@ object Swatch {
           ^.background := color,
           ^.borderRadius := "50%",
           ^.background := "transparent",
-          ^.boxShadow := f"inset 0 0 0 ${if (active) "3" else "14"}px ${color}",
+          ^.boxShadow := f"inset 0 0 0 ${if (active) circleSize/5 else circleSize}px ${color}",
           ^.transition := "100ms box-shadow ease",
           ^.color := color, //$.props
           ^.onClick --> onClick(color)
@@ -51,6 +52,8 @@ object CircleSwatch {
   final case class Props(
       color: String,
       onClick: String => Callback,
+      circleSize: Int,
+      circleSpacing: Int,
       active: Boolean
   )(key: Key) {
     @inline def render: VdomElement = Component.withKey(key)(this)
@@ -73,14 +76,14 @@ object CircleSwatch {
       $ : BackendScope[Props, Unit]
   ) {
     def render(value: Props) = value match {
-      case Props(color, onClick, active) =>
+      case Props(color, onClick, circleSize, circleSpacing, active) =>
         <.div(
-          ^.width := 28.px,
-          ^.height := 28.px,
-          ^.marginRight := 14.px,
-          ^.marginBottom := 14.px,
+          ^.width := (2 * circleSize).px,
+          ^.height := (2 * circleSize).px,
+          ^.marginRight := circleSpacing.px,
+          ^.marginBottom := circleSpacing.px,
           Styles.hoveringStyle,
-          Swatch.Props(color, onClick, active).render
+          Swatch.Props(color, onClick, circleSize, active).render
         )
     }
   }
@@ -112,14 +115,14 @@ object ColorCircle {
       }
 
       <.div(
-        ^.width := "400px", //$.props.map(_.width.toString()),
+        ^.width := props.width.px,
         ^.display := "flex",
         ^.flexWrap := "wrap",
-        ^.marginRight := -14.px, //-$.props.map(_.circleSpacing),
-        ^.marginBottom := -14.px, //-$.props.map(_.circleSpacing),
+        ^.marginRight := (- props.circleSpacing).px,
+        ^.marginBottom := (- props.circleSpacing).px,
         props.colors.toVdomArray { c =>
           CircleSwatch
-            .Props(c, handleChange, c == colorSnapshot.value)(c)
+            .Props(c, handleChange, circleSize=props.circleSize, circleSpacing=props.circleSpacing, c == colorSnapshot.value)(c)
             .render
         }
       )

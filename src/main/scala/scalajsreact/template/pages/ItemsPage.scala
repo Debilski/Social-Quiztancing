@@ -25,7 +25,7 @@ object ItemsPage {
     .builder[Props]("ItemsPage")
     .render_P { P =>
       <.div(
-        Style.container,
+        //Style.container,
         <.div(Style.nav,
               LeftNav(LeftNav.Props(Item.menu, P.selectedPage, P.ctrl))),
         <.div(Style.content, P.selectedPage.render(P.ctrl))
