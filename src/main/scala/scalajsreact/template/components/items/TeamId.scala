@@ -56,7 +56,7 @@ object TeamId {
   }
 
   val Component = ScalaComponent
-    .builder[StateSnapshotWS[GameState]]("TeamId")
+    .builder[StateSnapshotWS[GameState]]
     .initialStateFromProps { p =>
       p._1.value.team.map(_.team_code) getOrElse ""
     }

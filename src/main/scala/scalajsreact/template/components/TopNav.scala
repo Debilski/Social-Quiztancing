@@ -41,7 +41,7 @@ object TopNav {
   implicit val propsReuse = Reusability.by((_: Props).selectedPage)
 
   val component = ScalaComponent
-    .builder[Props]("TopNav")
+    .builder[Props]
     .render_P { P =>
       <.header(
         <.nav(

@@ -10,7 +10,7 @@ import scalajsreact.template.utils.Debounce
 
 object AnswerInput {
   val Component = ScalaComponent
-    .builder[WS[(Question, AnswerSet)]]("AnswerInput")
+    .builder[WS[(Question, AnswerSet)]]
     .render_P {
       case ((q, a), wsSnapshot, sendMessage) =>
         //     def onChange(e: ReactEventFromInput): Callback = {

@@ -12,7 +12,7 @@ import scalajsreact.template.models.types.StateSnapshotWS
 
 object PlayerId {
   val Component = ScalaComponent
-    .builder[StateSnapshotWS[State]]("PlayerId")
+    .builder[StateSnapshotWS[State]]
     .initialState("")
     .renderPS {
       case (bs, (stateSnapshot, sendMessage), s) =>

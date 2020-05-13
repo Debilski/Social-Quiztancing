@@ -8,7 +8,7 @@ import scalajsreact.template.models.types.StateSnapshotWS
 
 object PlayerName {
   val Component = ScalaComponent
-    .builder[StateSnapshotWS[State]]("PlayerName")
+    .builder[StateSnapshotWS[State]]
     .initialState("")
     .renderPS {
       case (bs, (stateSnapshot, sendMessage), s) =>

@@ -90,7 +90,7 @@ object PlayerInfo {
   }
 
   val Component = ScalaComponent
-    .builder[Props]("PlayerInfo")
+    .builder[Props]
     .initialState(false)
     .renderBackend[Backend]
     .build

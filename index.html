@@ -1,23 +1,32 @@
 <!DOCTYPE html>
 <html>
+
 <head>
     <meta charset="UTF-8">
     <title>ScalaJS react template</title>
     <!-- Include JavaScript dependencies -->
     <link rel="stylesheet" href="css/light.css" />
 
-    <script type="text/javascript" src="js/scalajs-react-template-jsdeps.js"></script>
-    <script src="https://unpkg.com/react-flip-move/dist/react-flip-move.js"></script>
-
+    <!-- script crossorigin type="text/javascript" src="https://unpkg.com/react@16.13.1/umd/react.production.min.js"></script -->
+    <!-- script crossorigin type="text/javascript" src="https://unpkg.com/react-dom@16.13.1/umd/react-dom.production.min.js"></script -->
+    <!-- script crossorigin type="text/javascript" src="https://unpkg.com/react-flip-move/dist/react-flip-move.js"></script -->
 </head>
+
 <body>
 
-<div id="template-app">
+    <div id="template-app">
+    </div>
 
-</div>
+    <script type="text/javascript"
+        src="target/scala-2.13/scalajs-bundler/main/scalajs-react-template-fastopt-library.js"></script>
+    <script type="text/javascript"
+        src="target/scala-2.13/scalajs-bundler/main/scalajs-react-template-fastopt-loader.js"></script>
+    <script type="text/javascript"
+        src="target/scala-2.13/scalajs-bundler/main/scalajs-react-template-fastopt.js"></script>
 
-<!-- Include Scala.js compiled code -->
-<script type="text/javascript" src="js/scalajs-react-template-opt.js"></script>
-<script type="text/javascript" src="/workbench.js"></script>
+    <!-- Include Scala.js compiled code -->
+    <!--script type="text/javascript" src="js/scalajs-react-template-opt.js"></script-->
+    <!-- script type="text/javascript" src="/workbench.js"></script -->
 </body>
+
 </html>

@@ -78,7 +78,7 @@ object TeamInfo {
   }
 
   val Component = ScalaComponent
-    .builder[Props]("TeamInfo")
+    .builder[Props]
     .initialState(false)
     .renderBackend[Backend]
     .build

@@ -492,7 +492,7 @@ case "set_selected_answers" =>
   }
 
   val SocialQuiztancing = ScalaComponent
-    .builder[Props]("SocialQuiztancing")
+    .builder[Props]
     .initialStateFromProps {
       case p @ Props(game_uuid) =>
         State(

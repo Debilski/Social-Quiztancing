@@ -9,7 +9,7 @@ import scalajsreact.template.routes.Item
 
 object GamesList {
   val Component = ScalaComponent
-  .builder[StateSnapshotWS[State]]("GameId")
+  .builder[StateSnapshotWS[State]]
   .render_P {
     case (stateSnapshot, sendMessage) =>
       def numQuestions(game: Game) = game.num_questions match {
@@ -26,7 +26,7 @@ object GamesList {
               <.small(numQuestions(game))
               ),
             ^.key := game.game_uuid.toString()
-          ),
+          )
         }.toVdomArray
       }
 

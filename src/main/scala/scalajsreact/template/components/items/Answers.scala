@@ -113,7 +113,7 @@ object Answers {
   }
 
   val Component = ScalaComponent
-    .builder[Props]("Answers")
+    .builder[Props]
     .renderBackend[Backend]
     .build
 

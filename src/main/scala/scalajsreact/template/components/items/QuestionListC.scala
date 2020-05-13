@@ -18,7 +18,7 @@ object QuestionListC {}
 
 object Question_ {
   val Component = ScalaComponent
-    .builder[WS[(Team, Question, AnswerSet)]]("Question")
+    .builder[WS[(Team, Question, AnswerSet)]]
     .render_P {
       case ((t, q, a), wsSnapshot, sendMessage) =>
         if (q.is_active)

@@ -22,7 +22,7 @@ object ItemsPage {
   }
 
   val component = ScalaComponent
-    .builder[Props]("ItemsPage")
+    .builder[Props]
     .render_P { P =>
       <.div(
         //Style.container,

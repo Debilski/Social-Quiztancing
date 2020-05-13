@@ -41,7 +41,7 @@ object LeftNav {
   implicit val propsReuse = Reusability.by((_: Props).selectedPage)
 
   val component = ScalaComponent
-    .builder[Props]("LeftNav")
+    .builder[Props]
     .render_P { P =>
       <.ul(
         Style.container,
