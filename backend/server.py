@@ -1,170 +1,35 @@
 #!/usr/bin/env python
 
 import asyncio
-import enum
+
 import json
 import logging
 import sqlite3
-import uuid
-import weakref
-from collections import defaultdict
-from functools import wraps
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import websockets
-from sqlalchemy import (CHAR, JSON, TIMESTAMP, Boolean, Column, DateTime, Enum,
-                        ForeignKey, Integer, String, Table, UniqueConstraint,
-                        create_engine)
-from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.ext.hybrid import hybrid_property
-from sqlalchemy.orm import joinedload, lazyload, relationship, sessionmaker
-from sqlalchemy.sql import func
-from sqlalchemy.types import CHAR, TypeDecorator
-
+from sqlalchemy import create_engine
+from sqlalchemy.orm import joinedload, sessionmaker
 from sty import fg
 
-
-class GUID(TypeDecorator):
-    """Platform-independent GUID type.
-
-    Uses PostgreSQL's UUID type, otherwise uses
-    CHAR(32), storing as stringified hex values.
-
-    """
-    impl = CHAR
-
-    def load_dialect_impl(self, dialect):
-        if dialect.name == 'postgresql':
-            return dialect.type_descriptor(UUID())
-        else:
-            return dialect.type_descriptor(CHAR(32))
-
-    def process_bind_param(self, value, dialect):
-        if value is None:
-            return value
-        elif dialect.name == 'postgresql':
-            return str(value)
-        else:
-            if not isinstance(value, uuid.UUID):
-                return "%.32x" % uuid.UUID(value).int
-            else:
-                # hexstring
-                return "%.32x" % value.int
-
-    def process_result_value(self, value, dialect):
-        if value is None:
-            return value
-        else:
-            if not isinstance(value, uuid.UUID):
-                value = uuid.UUID(value)
-            return value
+from db import (
+    Base,
+    Game,
+    GivenAnswer,
+    Player,
+    PlayerInGame,
+    Question,
+    Selected,
+    Team,
+    Vote,
+)
 
 
 conn = sqlite3.connect("quiz.db", detect_types=sqlite3.PARSE_COLNAMES)
 conn.execute("PRAGMA foreign_keys = 1")
 
 
-engine = create_engine('sqlite:///quiz.db', echo=True)
-
-Base = declarative_base()
-
-
-class Team(Base):
-    __tablename__ = 'teams'
-    id = Column(Integer, primary_key=True)
-    name = Column(String, nullable=False)
-    team_code = Column(String, nullable=False)
-    game_id = Column(Integer, ForeignKey('games.id'), nullable=False)
-    players = relationship("PlayerInGame", back_populates="team")
-
-    quizadmin = Column(Boolean, default=False, nullable=False)
-
-    __table_args__ = (UniqueConstraint('game_id', 'team_code', name='team_code_unique_in_game'),
-                     )
-
-class Player(Base):
-    __tablename__ = 'players'
-    id = Column(Integer, primary_key=True)
-    uuid = Column(GUID, default=uuid4, unique=True)
-    name = Column(String, nullable=False)
-    color = Column(String, nullable=False)
-
-    sub_players = relationship("PlayerInGame", back_populates="player")
-
-
-class PlayerInGame(Base):
-    __tablename__ = 'player_game'
-    id = Column(Integer, primary_key=True)
-    player_id = Column(Integer, ForeignKey('players.id'), nullable=False)
-    game_id = Column(Integer, ForeignKey('games.id'), nullable=False)
-    team_id = Column(Integer, ForeignKey('teams.id'), nullable=True)
-
-    team = relationship("Team", back_populates="players")
-    player = relationship("Player", back_populates="sub_players")
-    game = relationship("Game")
-    answers = relationship("GivenAnswer", back_populates="player")
-    voted_for = relationship("Vote")
-
-    __table_args__ = (UniqueConstraint('player_id', 'game_id', name='subplayer_unique_in_game'),
-                     )
-
-    def __str__(self):
-        vars = "id player_id game_id team_id".split()
-        return f"{self.__class__.__name__}: {' '.join([f'{v}={getattr(self, v)}' for v in vars])}"
-
-class Selected(enum.Enum):
-    true = True
-
-class GivenAnswer(Base):
-    __tablename__ = 'given_answers'
-    id = Column(Integer, primary_key=True)
-    uuid = Column(GUID, default=uuid4, unique=True)
-    answer = Column(String, nullable=False)
-    question_uuid = Column(GUID, ForeignKey('questions.uuid'))
-    player_id = Column(Integer, ForeignKey('player_game.id'))
-    player = relationship("PlayerInGame", back_populates="answers")
-    question = relationship("Question")
-
-    time_created = Column(DateTime(timezone=True), server_default=func.now())
-    time_updated = Column(DateTime(timezone=True), onupdate=func.now())
-
-    votes = relationship("Vote")
-    is_selected = Column(Enum(Selected))
-    __table_args__ = (UniqueConstraint('question_uuid', 'player_id', 'is_selected'),
-        )
-
-
-class Question(Base):
-    __tablename__ = 'questions'
-    id = Column(Integer, primary_key=True)
-    uuid = Column(GUID, default=uuid4, unique=True)
-    question = Column(String, nullable=False)
-    game_id = Column(Integer, ForeignKey('games.id'))
-    game = relationship("Game", back_populates="questions")
-    is_active = Column(Boolean, default=False)
-
-
-class Vote(Base):
-    __tablename__ = 'votes'
-    id = Column(Integer, primary_key=True)
-    answer_id = Column('answer_id', Integer, ForeignKey('given_answers.id'), index=True)
-    subplayer_id = Column('subplayer_id', Integer, ForeignKey('player_game.id'))
-
-    __table_args__ = (UniqueConstraint('subplayer_id', 'answer_id', name='subplayer_unique_in_answer'),
-                     )
-
-class Game(Base):
-    __tablename__ = 'games'
-    id = Column(Integer, primary_key=True)
-    uuid = Column(GUID, default=uuid4, unique=True)
-    name = Column(String)
-    questions_ordered = Column(JSON)
-    questions = relationship("Question", order_by=Question.id, back_populates="game")
-    num_questions = Column(Integer, default=20)
-
-    teams = relationship("Team", backref="game")
+engine = create_engine("sqlite:///quiz.db", echo=True)
 
 
 def init_db(session):
@@ -175,15 +40,13 @@ def init_db(session):
         return
 
     game = Game(name="Test Game", uuid="A97E57A2-E440-4975-A624-6F99999D64DA")
-    questions = [
-        Question(question="Who won the quiz?", game=game)
-    ]
+    questions = [Question(question="Who won the quiz?", game=game)]
     session.add(game)
 
     game = Game(name="new", uuid="C0CFAF27-0770-400E-A9B9-82461ED9FB6F")
     questions = [
         Question(question="Who is good at this?", game=game),
-        Question(question="Who read the next question?", game=game)
+        Question(question="Who read the next question?", game=game),
     ]
     session.add(game)
     session.commit()
@@ -193,33 +56,43 @@ def init_db(session):
     sp = PlayerInGame(team=t, player=p, game=game)
     session.add(p)
     session.commit()
-    session.add(GivenAnswer(answer="This is my answer", question_uuid=questions[0].uuid, player_id=p.id))
+    session.add(
+        GivenAnswer(
+            answer="This is my answer", question_uuid=questions[0].uuid, player_id=p.id
+        )
+    )
     session.commit()
+
 
 Session = sessionmaker()
 
 Session.configure(bind=engine)
 init_db(Session())
 
-#logging.basicConfig()
+# logging.basicConfig()
 
 USERS = set()
 USER_SESSION_MAPPING = {}
 TEAM_IDS = {}
 GAME_UUIDS = {}
 
+
 def games_list():
     session = Session()
-    games = [{
-        "game_name": game.name,
-        "game_uuid": str(game.uuid),
-        "num_questions": game.num_questions,
-    } for game in session.query(Game)]
+    games = [
+        {
+            "game_name": game.name,
+            "game_uuid": str(game.uuid),
+            "num_questions": game.num_questions,
+        }
+        for game in session.query(Game)
+    ]
     return games
 
 
 async def register(player):
     USERS.add(player)
+
 
 def register_uuid(websocket, uuid):
     if uuid is None:
@@ -228,6 +101,7 @@ def register_uuid(websocket, uuid):
         USER_SESSION_MAPPING[websocket] = uuid
 
     return uuid
+
 
 async def unregister(player):
     try:
@@ -248,13 +122,16 @@ async def unregister(player):
     except KeyError:
         pass
 
+
 HANDLERS = {}
+
 
 def register_handler(fn):
     if fn.__name__ in HANDLERS:
         raise ValueError(f"Function with name {fn.name} already registered.")
     HANDLERS[fn.__name__] = fn
     return fn
+
 
 def team_members(player: "PlayerConnection", session: Session):
     # Return the team memebers of a player
@@ -275,7 +152,7 @@ async def set_name(player: "PlayerConnection", session: Session, *, player_name)
     payload = {
         "player_uuid": str(player.in_db(session).uuid),
         "player_name": player.in_db(session).name,
-        "player_color": player.in_db(session).color
+        "player_color": player.in_db(session).color,
     }
     message = {"msg_type": "player_id", "payload": payload}
     await player.send(message)
@@ -293,10 +170,11 @@ async def set_color(player, session, *, color):
     payload = {
         "player_uuid": str(player.in_db(session).uuid),
         "player_name": player.in_db(session).name,
-        "player_color": player.in_db(session).color
+        "player_color": player.in_db(session).color,
     }
     message = {"msg_type": "player_id", "payload": payload}
     await player.send(message)
+
 
 async def notify_team(message, team_id):
     # send message to all in team
@@ -304,9 +182,12 @@ async def notify_team(message, team_id):
     print(f"{fg.blue}{message['msg_type']} ->> {message['payload']}{fg.rs}")
     print("sending to", list(TEAM_IDS.items()))
     json_msg = json.dumps(message)
-    print(f"{fg.red}{len(TEAM_IDS)} TEAM_IDS. Sending to {len(list(tid for tid in TEAM_IDS.values() if tid == team_id))}{fg.rs}")
+    print(
+        f"{fg.red}{len(TEAM_IDS)} TEAM_IDS. Sending to {len(list(tid for tid in TEAM_IDS.values() if tid == team_id))}{fg.rs}"
+    )
 
     ws_remove = []
+
     async def send_ignore_closed(ws, msg):
         try:
             await ws.send(msg)
@@ -314,7 +195,13 @@ async def notify_team(message, team_id):
             print(f"Closing WS {ws}")
             ws_remove.append(ws)
 
-    await asyncio.wait([send_ignore_closed(user, json_msg) for user, tid in TEAM_IDS.items() if tid == team_id])
+    await asyncio.wait(
+        [
+            send_ignore_closed(user, json_msg)
+            for user, tid in TEAM_IDS.items()
+            if tid == team_id
+        ]
+    )
     if ws_remove:
         await asyncio.wait([unregister(ws) for ws in ws_remove])
 
@@ -328,9 +215,12 @@ async def notify_all_in_game(message, game_uuid):
     print(f"{fg.blue}{message['msg_type']} ->> {message['payload']}{fg.rs}")
     print("sending to", list(GAME_UUIDS.items()))
     json_msg = json.dumps(message)
-    print(f"{fg.red}{len(GAME_UUIDS)} GAME_UUIDS. Sending to {len(list(guuid for guuid in GAME_UUIDS.values() if guuid == game_uuid))}{fg.rs}")
+    print(
+        f"{fg.red}{len(GAME_UUIDS)} GAME_UUIDS. Sending to {len(list(guuid for guuid in GAME_UUIDS.values() if guuid == game_uuid))}{fg.rs}"
+    )
 
     ws_remove = []
+
     async def send_ignore_closed(ws, msg):
         try:
             await ws.send(msg)
@@ -338,7 +228,13 @@ async def notify_all_in_game(message, game_uuid):
             print(f"Closing WS {ws}")
             ws_remove.append(ws)
 
-    await asyncio.wait([send_ignore_closed(user, json_msg) for user, guuid in GAME_UUIDS.items() if guuid == game_uuid])
+    await asyncio.wait(
+        [
+            send_ignore_closed(user, json_msg)
+            for user, guuid in GAME_UUIDS.items()
+            if guuid == game_uuid
+        ]
+    )
     if ws_remove:
         await asyncio.wait([unregister(ws) for ws in ws_remove])
 
@@ -351,7 +247,12 @@ async def join_team(player: "PlayerConnection", session, *, team_code):
     if not game:
         return
 
-    team = session.query(Team).filter(Team.team_code == team_code).filter(Team.game_id == game.id).first()
+    team = (
+        session.query(Team)
+        .filter(Team.team_code == team_code)
+        .filter(Team.game_id == game.id)
+        .first()
+    )
     if team is None:
         team = Team(team_code=team_code, name="", game_id=game.id)
         session.add(team)
@@ -366,6 +267,7 @@ async def join_team(player: "PlayerConnection", session, *, team_code):
     await send_answers(player, session, team=team)
     await send_selected_answers(player, session, team=team)
 
+
 @register_handler
 async def set_team_name(player, session):
     sub_player = player.player_in_game(session)
@@ -377,11 +279,16 @@ async def set_team_name(player, session):
 @register_handler
 async def update_answer(player, session, *, question_uuid, answer):
     sub_player = player.player_in_game(session)
-    question = session.query(Question).filter(Question.uuid==question_uuid).first()
+    question = session.query(Question).filter(Question.uuid == question_uuid).first()
     if not question:
         print(f"{fg.red}Question {question_uuid} not found{fg.rs}")
         return
-    a = session.query(GivenAnswer).filter(GivenAnswer.question_uuid == question.uuid).filter(GivenAnswer.player_id == sub_player.id).first()
+    a = (
+        session.query(GivenAnswer)
+        .filter(GivenAnswer.question_uuid == question.uuid)
+        .filter(GivenAnswer.player_id == sub_player.id)
+        .first()
+    )
     if a is None:
         a = GivenAnswer(question_uuid=question_uuid, player_id=sub_player.id)
         session.add(a)
@@ -389,6 +296,7 @@ async def update_answer(player, session, *, question_uuid, answer):
     # Commit so that answer uuid is generated
     session.commit()
     await notify_team_of_answer(player, session, a)
+
 
 async def notify_team_of_answer(player, session, answer):
     payload = {
@@ -398,10 +306,11 @@ async def notify_team_of_answer(player, session, answer):
         "player_id": answer.player_id,
         "votes": [v.subplayer_id for v in answer.votes],
         "is_selected": bool(answer.is_selected),
-        "timestamp": int(answer.time_created.timestamp() * 1000_000)
+        "timestamp": int(answer.time_created.timestamp() * 1000_000),
     }
     message = {"msg_type": "answer_changed", "payload": payload}
     await notify_team(message, TEAM_IDS[player.websocket])
+
 
 def question_payload(question: Question, idx) -> dict:
     payload = {}
@@ -410,6 +319,7 @@ def question_payload(question: Question, idx) -> dict:
     payload["question_uuid"] = str(question.uuid)
     payload["is_active"] = question.is_active
     return payload
+
 
 @register_handler
 async def load_game(player: "PlayerConnection", session, *, game_uuid):
@@ -438,19 +348,23 @@ def team_info(team, sub_player_id=None):
         "team_code": team.team_code,
         "team_name": team.name,
         "members": [
-        { "player_name": player.player.name,
-            "player_color": player.player.color,
-            "player_id": player.id,
-        }
-        for player in team.players],
-        "quizadmin": team.quizadmin
+            {
+                "player_name": player.player.name,
+                "player_color": player.player.color,
+                "player_id": player.id,
+            }
+            for player in team.players
+        ],
+        "quizadmin": team.quizadmin,
     }
     if sub_player_id is not None:
         payload["self_id"] = sub_player_id
     return payload
 
 
-async def send_team_info(player: "PlayerConnection", session, *, game_uuid=None, team=None):
+async def send_team_info(
+    player: "PlayerConnection", session, *, game_uuid=None, team=None
+):
     if game_uuid and team is None:
         for game in session.query(Game).filter(Game.uuid == game_uuid):
             sub_player = player.player_in_game(session)
@@ -469,8 +383,9 @@ async def send_team_info(player: "PlayerConnection", session, *, game_uuid=None,
         await notify_team(message, team.id)
 
 
-
-async def send_questions(player: "PlayerConnection", session, *, game_uuid=None, team=None):
+async def send_questions(
+    player: "PlayerConnection", session, *, game_uuid=None, team=None
+):
     if game_uuid and team is None:
         for game in session.query(Game).filter(Game.uuid == game_uuid):
             pig = player.player_in_game(session)
@@ -487,10 +402,17 @@ async def send_questions(player: "PlayerConnection", session, *, game_uuid=None,
         await player.send(message)
 
 
-async def send_answers(player: "PlayerConnection", session, *, game_uuid=None, team=None):
+async def send_answers(
+    player: "PlayerConnection", session, *, game_uuid=None, team=None
+):
     if game_uuid and team is None:
         for game in session.query(Game).filter(Game.uuid == game_uuid):
-            sub_player = session.query(PlayerInGame).filter(PlayerInGame.game_id == game.id).filter(PlayerInGame.player == player.in_db(session)).first()
+            sub_player = (
+                session.query(PlayerInGame)
+                .filter(PlayerInGame.game_id == game.id)
+                .filter(PlayerInGame.player == player.in_db(session))
+                .first()
+            )
             if sub_player:
                 team = sub_player.team
             else:
@@ -504,10 +426,17 @@ async def send_answers(player: "PlayerConnection", session, *, game_uuid=None, t
         await player.send(message)
 
 
-async def send_selected_answers(player: "PlayerConnection", session, *, game_uuid=None, team=None):
+async def send_selected_answers(
+    player: "PlayerConnection", session, *, game_uuid=None, team=None
+):
     if game_uuid and team is None:
         for game in session.query(Game).filter(Game.uuid == game_uuid):
-            sub_player = session.query(PlayerInGame).filter(PlayerInGame.game_id == game.id).filter(PlayerInGame.player == player.in_db(session)).first()
+            sub_player = (
+                session.query(PlayerInGame)
+                .filter(PlayerInGame.game_id == game.id)
+                .filter(PlayerInGame.player == player.in_db(session))
+                .first()
+            )
             if sub_player:
                 team = sub_player.team
             else:
@@ -528,12 +457,16 @@ def selected_answers(session, game_uuid, team):
             "question_uuid": str(a.question_uuid),
             "answer_uuid": str(a.uuid),
             "team_code": a.player.team.team_code,
-            #"timestamp": int(a.time_created.timestamp() * 1000_000)
-    }
-    for a in session.query(GivenAnswer).join(GivenAnswer.player).join(GivenAnswer.question).join(Question.game)
-                .filter(Game.uuid==game_uuid)
-                .filter(GivenAnswer.is_selected==Selected.true)
-                .options(joinedload(GivenAnswer.player))]
+            # "timestamp": int(a.time_created.timestamp() * 1000_000)
+        }
+        for a in session.query(GivenAnswer)
+        .join(GivenAnswer.player)
+        .join(GivenAnswer.question)
+        .join(Question.game)
+        .filter(Game.uuid == game_uuid)
+        .filter(GivenAnswer.is_selected == Selected.true)
+        .options(joinedload(GivenAnswer.player))
+    ]
     return answers
 
 
@@ -560,12 +493,14 @@ def all_answers(session, game_uuid, team):
             "player_id": a.player.id,
             "votes": [v.subplayer_id for v in a.votes],
             "is_selected": bool(a.is_selected),
-            "timestamp": int(a.time_created.timestamp() * 1000_000)
-    }
-    for a in session.query(GivenAnswer).join(GivenAnswer.player)
-                .filter(PlayerInGame.team==team)
-                .options(joinedload(GivenAnswer.votes))
-                .options(joinedload(GivenAnswer.player))]
+            "timestamp": int(a.time_created.timestamp() * 1000_000),
+        }
+        for a in session.query(GivenAnswer)
+        .join(GivenAnswer.player)
+        .filter(PlayerInGame.team == team)
+        .options(joinedload(GivenAnswer.votes))
+        .options(joinedload(GivenAnswer.player))
+    ]
     return answers
 
 
@@ -576,10 +511,15 @@ async def select_answer(player: "PlayerConnection", session, *, answer_uuid):
     # check that answer and pig have same team
     if answer.player.team == pig.team:
         # get previous selected answer
-        prev_answer = (session.query(GivenAnswer).join(GivenAnswer.player).join(GivenAnswer.question).join(PlayerInGame.team)
-                .filter(PlayerInGame.team==pig.team)
-                .filter(GivenAnswer.question==answer.question)
-                .filter(GivenAnswer.is_selected==Selected.true).all()
+        prev_answer = (
+            session.query(GivenAnswer)
+            .join(GivenAnswer.player)
+            .join(GivenAnswer.question)
+            .join(PlayerInGame.team)
+            .filter(PlayerInGame.team == pig.team)
+            .filter(GivenAnswer.question == answer.question)
+            .filter(GivenAnswer.is_selected == Selected.true)
+            .all()
         )
 
         print(prev_answer)
@@ -612,11 +552,16 @@ async def vote_answer(player: "PlayerConnection", session, *, answer_uuid):
     pig = player.player_in_game(session)
     # check that answer and pig have same team
     if answer.player.team == pig.team:
-        res = session.query(Vote).filter(Vote.answer_id==answer.id).filter(Vote.subplayer_id==pig.id).first()
+        res = (
+            session.query(Vote)
+            .filter(Vote.answer_id == answer.id)
+            .filter(Vote.subplayer_id == pig.id)
+            .first()
+        )
         if res is not None:
             # already exists
             return
-        vote = Vote(answer_id = answer.id, subplayer_id = pig.id)
+        vote = Vote(answer_id=answer.id, subplayer_id=pig.id)
         try:
             session.add(vote)
             await notify_team_of_answer(player, session, answer)
@@ -628,15 +573,21 @@ async def vote_answer(player: "PlayerConnection", session, *, answer_uuid):
 async def unvote_answer(player: "PlayerConnection", session, *, answer_uuid):
     answer = session.query(GivenAnswer).filter(GivenAnswer.uuid == answer_uuid).first()
     pig = player.player_in_game(session)
-    res = session.query(Vote).filter(Vote.answer_id==answer.id).filter(Vote.subplayer_id==pig.id).delete()
+    res = (
+        session.query(Vote)
+        .filter(Vote.answer_id == answer.id)
+        .filter(Vote.subplayer_id == pig.id)
+        .delete()
+    )
     if res != 0:
         # we deleted something. report
         await notify_team_of_answer(player, session, answer)
 
 
-
 @register_handler
-async def update_question(player: "PlayerConnection", session, *, question_uuid, question_text):
+async def update_question(
+    player: "PlayerConnection", session, *, question_uuid, question_text
+):
     question = session.query(Question).filter(Question.uuid == question_uuid).first()
     # check that question is in correct game
     if not player.game_uuid == str(question.game.uuid):
@@ -678,7 +629,6 @@ async def unpublish_question(player: "PlayerConnection", session, *, question_uu
         await notify_all_in_game(msg, question.game.uuid)
 
 
-
 @register_handler
 async def init(player, session, *, uuid=None):
     # Update session-id
@@ -693,7 +643,7 @@ async def init(player, session, *, uuid=None):
     payload = {
         "player_uuid": str(p.uuid),
         "player_name": p.name,
-        "player_color": p.color
+        "player_color": p.color,
     }
     message = {"msg_type": "player_id", "payload": payload}
     await player.send(message)
@@ -712,7 +662,17 @@ class PlayerConnection:
 
         game = session.query(Game).filter(Game.uuid == self.game_uuid).first()
 
-        pig = session.query(PlayerInGame).filter(PlayerInGame.player == self.in_db(session)).filter(PlayerInGame.game == game).options(joinedload(PlayerInGame.team).lazyload(Team.players).joinedload(PlayerInGame.player)).first()
+        pig = (
+            session.query(PlayerInGame)
+            .filter(PlayerInGame.player == self.in_db(session))
+            .filter(PlayerInGame.game == game)
+            .options(
+                joinedload(PlayerInGame.team)
+                .lazyload(Team.players)
+                .joinedload(PlayerInGame.player)
+            )
+            .first()
+        )
         if pig is None:
             pig = PlayerInGame(player=self.in_db(session), game=game)
 
@@ -722,7 +682,9 @@ class PlayerConnection:
         return session.query(Player).filter(Player.uuid == self.player_uuid).first()
 
     def name(self, session):
-        return session.query(Player.name).filter(Player.uuid == self.player_uuid).first()
+        return (
+            session.query(Player.name).filter(Player.uuid == self.player_uuid).first()
+        )
 
     def set_name(self, session, name):
         player = self.in_db(session)
@@ -730,7 +692,9 @@ class PlayerConnection:
         session.commit()
 
     def color(self, session):
-        return session.query(Player.color).filter(Player.uuid == self.player_uuid).first()
+        return (
+            session.query(Player.color).filter(Player.uuid == self.player_uuid).first()
+        )
 
     def set_color(self, session, color):
         player = self.in_db(session)
@@ -792,6 +756,7 @@ async def webapp(websocket, path):
         print(f"Closed {player}")
     finally:
         await unregister(player)
+
 
 if __name__ == "__main__":
     start_server = websockets.serve(webapp, "localhost", 6789)
