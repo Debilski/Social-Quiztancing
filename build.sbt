@@ -1,8 +1,8 @@
 val v = new {
   val app = "1.0"
-  val scala = "2.13.2"
+  val scala = "2.13.4"
   val scalaJSDom = "1.0.0"
-  val scalaJSReact = "1.7.0"
+  val scalaJSReact = "1.7.6"
   val scalaCss = "0.6.1"
   val reactJS = "16.13.1"
 }
@@ -28,7 +28,7 @@ libraryDependencies ++= Seq(
   "io.circe" %%% "circe-generic-extras"
 ).map(_ % circeVersion)
 
-val monocleVersion = "2.0.4" // depends on cats 2.x
+val monocleVersion = "2.1.0" // depends on cats 2.x
 
 libraryDependencies ++= Seq(
   "com.github.julien-truffaut" %%% "monocle-core"  % monocleVersion,
